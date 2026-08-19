@@ -1,0 +1,18 @@
+# dsh-plugin-zen-useragent
+#
+# 方案：禁用原生 llm-pi-ai 入口，插入一个指向插件包装模块的新入口。
+# 包装模块会：
+#   1) 先把 @deepseek-ai/dsh-llm-pi-ai/lib/index.js 的 requestHeaders 打上补丁
+#      （允许 provider 配置的 headers 覆盖 attribution user-agent，解决
+#      OpenCode ZEN 免费模型 429 FreeUsageLimitError）
+#   2) 再动态导入原模块并原样转发导出 —— DSH 得到的就是原生 llm-pi-ai，
+#      但文件已被补丁，请求会携带 opencode/... 的 User-Agent
+#
+# 每次启动都会执行（幂等），DSH 升级后文件被还原也会自动重新打补丁，
+# 因此升级不会让这个修复失效。
+- id: llm-pi-ai
+  disabled: true
+
+- insert:
+    - id: zen-useragent-llm-pi-ai
+      name: 'dsh-plugin-zen-useragent'

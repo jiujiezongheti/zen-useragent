@@ -1,0 +1,33 @@
+{
+  "name": "dsh-plugin-zen-useragent",
+  "version": "1.0.0",
+  "description": "让 provider 配置的 headers（如 User-Agent）真正到达 pi-ai 的 API 请求 —— 修复 OpenCode ZEN 免费模型 429（FreeUsageLimitError）：把请求识别为 opencode 客户端而不是 deepseek-harness",
+  "type": "module",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jiujiezongheti/zen-useragent.git"
+  },
+  "homepage": "https://github.com/jiujiezongheti/zen-useragent",
+  "bugs": {
+    "url": "https://github.com/jiujiezongheti/zen-useragent/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "opencode",
+    "zen",
+    "user-agent"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
