@@ -58,6 +58,8 @@ dsh plugin --profile web add dsh-plugin-zen-useragent
    ```
    [dsh-plugin-zen-useragent] patched: C:\...\dsh-llm-pi-ai\lib\index.js
    ```
+   若输出 `READONLY: ...` 或 `WRITE FAILED: ...`，说明安装目录不可写，修复未
+   生效（补丁失败不会中断启动，会回退为原生行为）——修复权限或改用本地安装。
 
 ## 验证
 
@@ -80,3 +82,14 @@ attribution）。如需彻底还原，可删除 `requestHeaders` 里的补丁标
   行为与原生完全一致。
 - 若 DSH 升级后函数结构变化导致"无法识别"，插件会打印
   `SKIPPED: unrecognized requestHeaders shape` 并保持不破坏新代码 —— 此时升级本插件即可。
+- 补丁可靠性措施：
+  - `requestHeaders` 的定位按**花括号配平**执行（跳过字符串、模板字符串与注释里
+    的括号），函数体内出现行首闭合的嵌套对象也不会被截断写坏；
+  - 替换结果写盘前做三重校验（旧特征行已消失、标记已存在、函数唯一），任一不满足
+    即拒绝写盘（打印 `SKIPPED:`）;
+  - 落盘采用**原子写**（同目录临时文件 + rename，Windows 上 rename 被占用时回退
+    直接写），并发启动的进程不会读到写了一半的文件；
+  - 目标只读或写入失败时打印 `READONLY:` / `WRITE FAILED:` 并跳过，**不会中断 DSH
+    启动**，请求回退为原生行为。
+- 补丁算法在 `lib/patch-core.js`（纯函数），单测见 `test/patch-core.test.mjs`，
+  运行 `node test/patch-core.test.mjs`。
