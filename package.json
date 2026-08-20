@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-zen-useragent",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "让 provider 配置的 headers（如 User-Agent）真正到达 pi-ai 的 API 请求 —— 修复 OpenCode ZEN 免费模型 429（FreeUsageLimitError）：把请求识别为 opencode 客户端而不是 deepseek-harness",
   "type": "module",
   "main": "lib/index.js",
