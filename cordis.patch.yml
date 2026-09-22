@@ -10,9 +10,41 @@
 #
 # 每次启动都会执行（幂等），DSH 升级后文件被还原也会自动重新打补丁，
 # 因此升级不会让这个修复失效。
+#
+# 重要：替换入口的 id 必须保持为 `llm-pi-ai`（与原生入口一致），不能换成
+# 别的新 id。DSH 的模型设置页（"添加自定义模型"）会硬编码按
+# `entry.options.id === "llm-pi-ai"` 查找 pi-ai 的 settings 命名空间、adapter
+# 也用它把 provider 配置挂到 `llm-pi-ai:` settings 段。若把 id 改成其它值，
+# 命名空间就落到了新 id 下，模型设置页取不到 `llm-pi-ai`，导致"添加自定义
+# 模型"卡片不可用、协议下拉/字段缺失、已配置模型列表为空。这里复用同一
+# 个 id，禁用原生入口后包装入口在同一 id 槽上生效，命名空间不漂移。
 - id: llm-pi-ai
   disabled: true
 
 - insert:
-    - id: zen-useragent-llm-pi-ai
+    - id: llm-pi-ai
       name: 'dsh-plugin-zen-useragent'
+
+# 默认 providers 兜底：cordis.patch.yml 的目标入口改成同名 llm-pi-ai 后，
+# 底层是包装模块（名 dsh-plugin-zen-useragent），原生入口的 name 断言会跳过
+# 用户层里 `name: "@deepseek-ai/dsh-llm-pi-ai"` 的旧配置行，因此这里直接在
+# 兜底层补一份默认 opencodezen provider（apiKeyEnv 占位），保证装上插件后
+# 即使配置文件里没有该 provider，「模型添加」界面也能正常渲染"自定义模型"。
+# 用户在自己的 profile patch 层里配了同名 provider 时会整体覆盖本默认值。
+- id: llm-pi-ai
+  config:
+    providers:
+      opencodezen:
+        apiKeyEnv: OPENCODEZEN_API_KEY
+        api: openai-completions
+        baseURL: https://opencode.ai/zen/v1
+        headers:
+          User-Agent: opencode/1.18.21
+          Referer: https://opencode.ai
+        models:
+          - id: big-pickle
+            name: big-pickle
+          - id: test
+            name: test
+          - id: grok-4.7
+            name: grok-4.7

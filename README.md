@@ -1,13 +1,14 @@
 # dsh-plugin-zen-useragent
 
 > A DeepSeek Harness (DSH) plugin that lets provider-configured request headers
-> (e.g. `User-Agent`) reach the `pi-ai` API requests, fixing the OpenCode ZEN
-> free model `429 FreeUsageLimitError` / `400 MissingSessionID` by identifying
-> requests as the opencode client instead of `deepseek-harness`.
+> (e.g. `User-Agent`) reach the `pi-ai` API requests, fixes the OpenCode ZEN
+> free model `429 FreeUsageLimitError` / `400 MissingSessionID` / `403
+> Generation.FreeTierError` by identifying requests as the opencode client
+> instead of `deepseek-harness`.
 
 修复 DSH 中 OpenCode ZEN 免费模型 `429 FreeUsageLimitError: Rate limit exceeded`
-与 `400 MissingSessionID: OpenCode's free tier can only be used in OpenCode`
-问题的插件。
+、`400 MissingSessionID: OpenCode's free tier can only be used in OpenCode`
+与 `403 Generation.FreeTierError` 等问题的插件。
 
 ## 原理
 
@@ -15,33 +16,66 @@
 冲突的自定义请求头（如 `User-Agent`）**过滤掉**，实际发给 API 的 always 是
 `user-agent: deepseek-harness/0.1.0-rc.6 (+https://github.com/deepseek-ai/deepseek-harness)`。
 
-OpenCode ZEN（`https://opencode.ai/zen/v1`）按客户端标识限流/鉴权：
+OpenCode ZEN（`https://opencode.ai/zen/v1`）按客户端标识限流/鉴权。
 
-- 请求头不是 `opencode/...` 就被当作未知客户端 → `429 FreeUsageLimitError`；
-- UA 通过后若缺少 `x-opencode-session` 等身份头 → `400 MissingSessionID`
-  （`OpenCode's free tier can only be used in OpenCode`）。
+本插件对两处做补丁：
+
+1. **请求头**（`@deepseek-ai/dsh-llm-pi-ai/lib/index.js` 的 `requestHeaders`）：
+   允许 provider 配置的 headers 覆盖 attribution，并对指向 opencode 的请求自动
+   补全 opencode 身份头；
+2. **请求体**（`@earendil-works/pi-ai/api/openai-completions` 的
+   `buildParams`）：向 OpenCode Zen 网关的请求 `body.tools` 里自动追加一个
+   名为 `bash` 的**空壳工具**。
+
+### 为什么 body.tools 里必须有 bash？
+
+通过抓包 + 消融实验确认：ZEN 网关对免费档的判定只看两件事——
+
+- 请求带 opencode 会话头（`x-session-id` / `x-session-affinity` /
+  `x-opencode-session` 任一即可，值任意）；
+- 请求 `body.tools` 数组里**必须包含一个名为 `bash` 的函数工具**（数量不限、
+  其它工具名不限、描述不限）。
+
+DSH 自带的工具集里**没有 `bash`**（默认 26 个工具里只有 edit/glob/grep/read/
+skill/write 六个 opencode 官方名，缺少网关要求的 bash），因此请求恒被网关
+判为「非 opencode 客户端」→ `403 Generation.FreeTierError`。本插件在 pi-ai
+发送前把 `{ name: "bash", description: "…仅供网关校验，不要真正调用…" }` 追加到
+tools 数组末尾（若已存在则不重复追加；非 opencode 网关完全不改）。
+
+### 补丁后的行为（v1.3.0）
+
+**请求头补丁**（`requestHeaders`）：
+
+1. 允许 provider 配置的 headers 覆盖 attribution（解决 429）；
+2. 当合并后的 `User-Agent` 含 `opencode`（即该 provider 指向 opencode Zen/Go
+   网关）时，**自动补全**缺失的 opencode 身份头（解决 400/403），并据此把请求
+   伪装成真正的 `opencode` 深度求索（DeepSeek-Harness）客户端：
+   - `x-opencode-client: cli`
+   - `x-opencode-session: ses_<…>` —— **进程内稳定**（同一 dsh 进程内所有会话
+     复用同一值，重启 dsh 才重新生成），结构为 `ses_` + 12 位小写 hex +
+     14 位字母数字（`ses_[0-9a-f]{12}[0-9A-Za-z]{14}`）
+   - `x-opencode-request-id: msg_<…>` —— 每次请求随机，结构为 `msg_` + 12 位
+     小写 hex + 14 位字母数字（`msg_[0-9a-f]{12}[0-9A-Za-z]{14}`）
+3. 头名与格式都严格对齐真实 opencode CLM 客户端（网关逐位校验）：
+   - 请求头名是 `x-opencode-request-id`（不是 `x-opencode-request`）；
+   - **不注入** `x-opencode-project`（真实 CLM 客户端不带这个头）。
+4. **显式配置永远优先**：你在 provider headers 里手写了同名头，就按你写的来，
+   自动补全不会覆盖。
+
+**请求体补丁**（`openai-completions` 的 `buildParams`）：
+
+1. 仅对 provider 名为 `opencodezen` 或 baseUrl 含 `opencode` 的请求生效；
+2. tools 里没有 `bash` 时追加一个 bash 空壳（放在数组末尾，不影响原有工具）；
+3. 幂等 —— bash 已存在则不重复追加。
+
+## 原理（旧版简述保留）
 
 同一把 API Key 在 OpenCode TUI 里正常，在 DSH 里报错，就是这个原因。
 
 本插件通过 `cordis.patch.yml` **禁用原生 `llm-pi-ai` 入口**，并插入一个指向插件
-包装模块的新入口。包装模块在加载原模块**之前**给 `requestHeaders` 打补丁，然后
-原样转发原模块导出。补丁幂等、每次启动自动执行，**DSH 升级后自动重新打补丁，
-修复不会失效**。
-
-### 补丁后的行为（v1.1.0）
-
-补丁后的 `requestHeaders`：
-
-1. 允许 provider 配置的 headers 覆盖 attribution（解决 429）；
-2. 当合并后的 `User-Agent` 含 `opencode`（即该 provider 指向 opencode Zen/Go
-   网关）时，**自动补全**缺失的 opencode 身份头（解决 400 MissingSessionID）：
-   - `x-opencode-client: cli`
-   - `x-opencode-project: global`
-   - `x-opencode-session: ses_<…>` —— **进程内稳定**（同一 dsh 进程内所有会话
-     复用同一值，重启 dsh 才重新生成）
-   - `x-opencode-request: msg_<…>` —— 每次请求随机
-3. **显式配置永远优先**：你在 provider headers 里手写了同名头，就按你写的来，
-   自动补全不会覆盖。
+包装模块的新入口。包装模块在加载原模块**之前**给 `requestHeaders` 与 pi-ai
+`openai-completions` 打补丁，然后原样转发原模块导出。补丁幂等、每次启动自动
+执行，**DSH 升级后自动重新打补丁，修复不会失效**。
 
 ## 安装
 
@@ -56,8 +90,8 @@ dsh plugin --profile web add github:jiujiezongheti/zen-useragent
 dsh plugin --profile web add dsh-plugin-zen-useragent
 ```
 
-**升级 v1.x 用户**：直接重装/更新插件后重启 DSH 即可。启动时会检测到旧 v1 补丁
-并自动升级为 v2，日志打印 `upgraded: ...`，无需手动改动任何文件或配置。
+**升级 v1/v2/v3/v4 用户**：直接重装/更新插件后重启 DSH 即可。启动时会检测到旧
+补丁并自动升级，日志打印 `upgraded: ...` 或 `patched: ...`，无需手动改动任何文件或配置。
 
 ## 启用
 
@@ -80,28 +114,29 @@ dsh plugin --profile web add dsh-plugin-zen-useragent
 
 2. 重启 DSH Web（插件在启动时执行补丁，改配置/装插件后必须重启）。
 
-3. 启动时终端会打印确认：
+3. 启动时终端会打印两条确认：
    ```
    [dsh-plugin-zen-useragent] upgraded: C:\...\dsh-llm-pi-ai\lib\index.js
+   [dsh-plugin-zen-useragent] patched: C:\...\@earendil-works\pi-ai\dist\api\openai-completions.js
    ```
-   依次可能出现的状态：`patched`（从原生打补丁）、`upgraded`（v1 旧补丁升级为
-   v2）、`already patched`（已是 v2）。若输出 `READONLY: ...` 或
-   `WRITE FAILED: ...`，说明安装目录不可写，修复未生效（补丁失败不会中断启动，
-   会回退为原生行为）——修复权限或改用本地安装。
+   依次可能出现的状态：`patched`（从原生打补丁）、`upgraded`（旧补丁升级）、
+   `already patched`（已是新版）。若输出 `READONLY: ...` 或 `WRITE FAILED: ...`，
+   说明安装目录不可写，修复未生效（补丁失败不会中断启动，会回退为原生行为）
+   ——修复权限或改用本地安装。若缺第二条（`could not locate ... pi-ai`），说明
+   pi-ai 路径变化，tools 补丁未生效（仅请求头补丁生效）。
 
-### 想要会话 id 永久稳定？
+### 想要会话 / 请求 id 永久稳定？
 
-不想要"进程内稳定"（重启 dsh 就换值），可以在 provider headers 里手写一个固定值，
-自动补全会尊重它：
+不想要"进程内稳定"（重启 dsh 就换值），可以在 provider headers 里手写固定值，
+自动补全会尊重它们（注意固定值也要符合网关校验格式，否则可能 400/403）：
 
 ```yaml
 headers:
   User-Agent: opencode/1.18.18
   Referer: https://opencode.ai
-  x-opencode-session: ses_你的固定值
+  x-opencode-session: ses_0123456789abCDEFGHIJKLMNOP
   x-opencode-client: cli
-  x-opencode-project: global
-  x-opencode-request: msg_dsh
+  x-opencode-request-id: msg_abcdef012345uvwxyzABCDEFGH
 ```
 
 ## 验证
@@ -122,12 +157,18 @@ attribution、并自动补全 opencode 身份头）。如需彻底还原，可�
 
 - 补丁只影响「provider 显式配置了同名请求头」或「请求带 opencode UA」的情况；
   未配置 headers 的 provider 行为与原生完全一致（非 opencode UA 也不会注入
-  身份头）。
+  身份头）。tools 补丁只影响 provider 名为 `opencodezen` 或 baseUrl 含
+  `opencode` 的请求。
 - 若 DSH 升级后函数结构变化导致"无法识别"，插件会打印
-  `SKIPPED: unrecognized requestHeaders shape` 并保持不破坏新代码 —— 此时升级本插件即可。
+  `SKIPPED: unrecognized requestHeaders shape`（或 pi-ai 的
+  `SKIPPED: unrecognized tools shape`）并保持不破坏新代码 —— 此时升级本插件即可。
 - 补丁可靠性措施：
   - `requestHeaders` 的定位按**花括号配平**执行（跳过字符串、模板字符串与注释里
     的括号），函数体内出现行首闭合的嵌套对象也不会被截断写坏；
+  - pi-ai `openai-completions` 的替换锚点选取 `buildParams` 主分支的唯一文本
+    （`if (activeTools && activeTools.length > 0) {` 之后的首个
+    `params.tools = convertTools(activeTools, compat);`），替换后做三重校验
+    （新标记存在、原生结构保留、周边未破坏）；
   - 替换结果写盘前做三重校验（旧特征行已消失、标记已存在、函数唯一），任一不满足
     即拒绝写盘（打印 `SKIPPED:`）;
   - 落盘采用**原子写**（同目录临时文件 + rename，Windows 上 rename 被占用时回退
