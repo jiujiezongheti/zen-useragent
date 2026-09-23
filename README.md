@@ -29,7 +29,7 @@ OpenCode ZEN（`https://opencode.ai/zen/v1`）按客户端标识限流/鉴权。
 
 ### 为什么 body.tools 里必须有 bash？
 
-通过抓包 + 消融实验确认：ZEN 网关对免费档的判定只看两件事——
+ZEN 网关对免费档的请求有几个判定条件：
 
 - 请求带 opencode 会话头（`x-session-id` / `x-session-affinity` /
   `x-opencode-session` 任一即可，值任意）；
@@ -95,26 +95,33 @@ dsh plugin --profile web add dsh-plugin-zen-useragent
 
 ## 启用
 
-1. 确保 `settings.yaml`（`$DSH_HOME/settings.yaml`）里 opencodezen provider 配置
-   了 `User-Agent`（DSH Web 的 Models 页面可直接编辑；也可直接改文件）：
+1. 配置 opencodezen provider。DSH 的 provider 配置现在位于 profile 层的
+   `cordis.patch.yml`（`$DSH_HOME/profiles/<profile>/cordis.patch.yml`），不再是旧的
+   `settings.yaml`。插件自带的 `cordis.patch.yml` 已内置一份默认的 opencodezen
+   provider（含 big-pickle 等模型，headers 带 `User-Agent`——解决 429
+   必需）。你可以在自己的 profile 层 `cordis.patch.yml` 里覆盖同名 provider：
 
    ```yaml
-   llm-pi-ai:
-     providers:
-       opencodezen:
-         displayName: opencode
-         apiKeyEnv: OPENCODEZEN_API_KEY
-         api: openai-completions
-         baseURL: https://opencode.ai/zen/v1
-         headers: { User-Agent: opencode/1.18.18, Referer: https://opencode.ai }
-         models: [...]
+   - id: llm-pi-ai
+     config:
+       providers:
+         opencodezen:
+           displayName: opencode
+           apiKeyEnv: OPENCODEZEN_API_KEY
+           api: openai-completions
+           baseURL: https://opencode.ai/zen/v1
+           headers: { User-Agent: opencode/1.18.18, Referer: https://opencode.ai }
+           models: [...]
    ```
 
-   `x-opencode-*` 身份头**无需手写**——插件的自动补全会按上面的规则生成。
+   对应 API Key 放在 `$DSH_HOME/.credentials.yaml`（web profile 下即
+   `C:\Users\...\.dsh\.credentials.yaml`）。
 
-2. 重启 DSH Web（插件在启动时执行补丁，改配置/装插件后必须重启）。
+2. `x-opencode-*` 身份头**无需手写**——插件的自动补全会按上面的规则生成。
 
-3. 启动时终端会打印两条确认：
+3. 重启 DSH Web（插件在启动时执行补丁，改配置/装插件后必须重启）。
+
+4. 启动时终端会打印两条确认：
    ```
    [dsh-plugin-zen-useragent] upgraded: C:\...\dsh-llm-pi-ai\lib\index.js
    [dsh-plugin-zen-useragent] patched: C:\...\@earendil-works\pi-ai\dist\api\openai-completions.js
