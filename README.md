@@ -42,7 +42,7 @@ skill/write 六个 opencode 官方名，缺少网关要求的 bash），因此�
 发送前把 `{ name: "bash", description: "…仅供网关校验，不要真正调用…" }` 追加到
 tools 数组末尾（若已存在则不重复追加；非 opencode 网关完全不改）。
 
-### 补丁后的行为（v1.3.0）
+### 补丁后的行为（v1.4.0）
 
 **请求头补丁**（`requestHeaders`）：
 
@@ -68,14 +68,22 @@ tools 数组末尾（若已存在则不重复追加；非 opencode 网关完全�
 2. tools 里没有 `bash` 时追加一个 bash 空壳（放在数组末尾，不影响原有工具）；
 3. 幂等 —— bash 已存在则不重复追加。
 
-## 原理（旧版简述保留）
+## 原理（v1.4.0 实现）
 
 同一把 API Key 在 OpenCode TUI 里正常，在 DSH 里报错，就是这个原因。
 
-本插件通过 `cordis.patch.yml` **禁用原生 `llm-pi-ai` 入口**，并插入一个指向插件
-包装模块的新入口。包装模块在加载原模块**之前**给 `requestHeaders` 与 pi-ai
-`openai-completions` 打补丁，然后原样转发原模块导出。补丁幂等、每次启动自动
-执行，**DSH 升级后自动重新打补丁，修复不会失效**。
+本插件的 `cordis.patch.yml` **不改动原生 `llm-pi-ai` 入口**（保持唯一、直接挂载，
+因此 DSH 模型页 —— ConfigEditor —— 可以正常增删改 provider；这是 v1.4.0 的核心
+修复，旧版「禁用原生行 + 插入同名包装行」会造成两条 `llm-pi-ai` 行，模型页任何
+写入都会报 `Configuration for "llm-pi-ai" is overridden by a home patch or command-line overlay`），
+而是**额外插入一个独立入口 `zen-useragent`**，该模块每次启动时对磁盘上的
+`requestHeaders` 与 pi-ai `openai-completions` 幂等落盘补丁，原生模块加载时读到的
+就是已补丁的文件。补丁失败不会中断启动，会回退为原生行为。
+
+时序说明：loader 并行导入各入口模块，全新安装后的第一次启动（或 DSH 升级把文件
+还原后的第一次启动）若原生模块恰好先读到未补丁的文件，该次启动仍为原生行为；
+补丁当次即落盘，**重启后生效**，此后每次启动都是 `already patched`。DSH 升级
+自动重新打补丁，修复不会因升级而失效。
 
 ## 安装
 
@@ -97,9 +105,9 @@ dsh plugin --profile web add dsh-plugin-zen-useragent
 
 1. 配置 opencodezen provider。DSH 的 provider 配置现在位于 profile 层的
    `cordis.patch.yml`（`$DSH_HOME/profiles/<profile>/cordis.patch.yml`），不再是旧的
-   `settings.yaml`。插件自带的 `cordis.patch.yml` 已内置一份默认的 opencodezen
-   provider（含 big-pickle 等模型，headers 带 `User-Agent`——解决 429
-   必需）。你可以在自己的 profile 层 `cordis.patch.yml` 里覆盖同名 provider：
+   `settings.yaml`。v1.4.0 起插件**不再内置默认 provider**，需要在 profile 层配置
+   一个指向 opencode 网关的 provider（headers 必须带 `User-Agent` —— 解决 429
+   必需）：
 
    ```yaml
    - id: llm-pi-ai
@@ -119,7 +127,8 @@ dsh plugin --profile web add dsh-plugin-zen-useragent
 
 2. `x-opencode-*` 身份头**无需手写**——插件的自动补全会按上面的规则生成。
 
-3. 重启 DSH Web（插件在启动时执行补丁，改配置/装插件后必须重启）。
+3. 重启 DSH Web（插件在启动时执行补丁，改配置/装插件后必须重启；全新安装的
+   第一次启动若日志显示 `patched` / `upgraded`，建议再重启一次确认生效）。
 
 4. 启动时终端会打印两条确认：
    ```
