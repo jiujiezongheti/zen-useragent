@@ -10,6 +10,13 @@
 、`400 MissingSessionID: OpenCode's free tier can only be used in OpenCode`
 与 `403 Generation.FreeTierError` 等问题的插件。
 
+> ⚠️ **已知限制（首次安装 / DSH 升级后务必重启一次）**：DSH 的 loader 并行导入
+> 各入口模块，全新安装后的**第一次启动**（或 DSH 升级把补丁文件还原后的第一次
+> 启动），若原生 `llm-pi-ai` 恰好先于本插件读到未补丁的文件，该次启动仍按原生
+> 行为运行；补丁当次落盘，**重启 DSH 后生效**。此后每次启动日志显示
+> `already patched`，零额外开销。判断标准：启动日志出现 `patched:` /
+> `upgraded:` 时建议再重启一次确认生效；出现 `already patched` 即为生效状态。
+
 ## 原理
 
 原生 `@deepseek-ai/dsh-llm-pi-ai` 的 `requestHeaders()` 会把与 attribution headers
@@ -80,9 +87,7 @@ tools 数组末尾（若已存在则不重复追加；非 opencode 网关完全�
 `requestHeaders` 与 pi-ai `openai-completions` 幂等落盘补丁，原生模块加载时读到的
 就是已补丁的文件。补丁失败不会中断启动，会回退为原生行为。
 
-时序说明：loader 并行导入各入口模块，全新安装后的第一次启动（或 DSH 升级把文件
-还原后的第一次启动）若原生模块恰好先读到未补丁的文件，该次启动仍为原生行为；
-补丁当次即落盘，**重启后生效**，此后每次启动都是 `already patched`。DSH 升级
+时序与生效：见顶部「已知限制」—— 安装/升级后重启一次确认生效；DSH 升级会
 自动重新打补丁，修复不会因升级而失效。
 
 ## 安装

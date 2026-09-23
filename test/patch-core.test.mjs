@@ -3,8 +3,11 @@
  * 运行：node test/patch-core.test.mjs（或 node --test test/patch-core.test.mjs；
  *       Windows 上目录形式 node --test test/ 无法被 Node 解析，请用显式文件路径）
  * 覆盖：原生替换（含旧正则截断回归）、幂等、annotated 补标、unknown 不变、
- *       花括号/字符串/注释配平、v1/v2→v3 升级、opencode 身份头自动补全、
+ *       花括号/字符串/注释配平、v1/v2/v3→v4 升级、opencode 身份头自动补全、
  *       session 格式（ses_[0-9a-f]{12}[0-9A-Za-z]{14}）、真实安装文件的集成识别。
+ * 末尾两条「真实安装文件」测试是本机部署自检：仅在文件存在时运行（其它机器上
+ * 自动 skip，CI 上亦如此），路径可用 DSH_PLUGIN_TEST_LLM_PI_AI /
+ * DSH_PLUGIN_TEST_PI_AI 环境变量覆盖。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -256,7 +259,8 @@ test("显式配置的身份头永远优先于自动补全", () => {
 });
 
 // ---- 本机集成验证（文件不存在时自动跳过，不依赖 CI 环境）----
-const REAL = "C:\\Users\\Administrator\\.dsh\\profiles\\node_modules\\@deepseek-ai\\dsh-llm-pi-ai\\lib\\index.js";
+// 默认路径指向本机部署；其它机器可用环境变量覆盖或直接忽略（skip）。
+const REAL = process.env.DSH_PLUGIN_TEST_LLM_PI_AI || "C:\\Users\\Administrator\\.dsh\\profiles\\node_modules\\@deepseek-ai\\dsh-llm-pi-ai\\lib\\index.js";
 
 test("真实安装文件：v1/v2/v3 旧补丁会被升级为 v4（或已是 v4），函数体与 PATCHED_FN 逐字节一致", { skip: !existsSync(REAL) }, () => {
 	const source = readFileSync(REAL, "utf8");
@@ -329,7 +333,7 @@ test("pi-ai 补丁后的注入段在模型非 opencodezen 时保持 tools 原样
 });
 
 // ---- 本机集成验证：真实 pi-ai 文件（存在才跑）----
-const REAL_PI_AI = "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@earendil-works\\pi-ai\\dist\\api\\openai-completions.js";
+const REAL_PI_AI = process.env.DSH_PLUGIN_TEST_PI_AI || "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@earendil-works\\pi-ai\\dist\\api\\openai-completions.js";
 
 test("真实 pi-ai 文件：已打 bash 补丁或可被打补丁，标记/锚点结构正确", { skip: !existsSync(REAL_PI_AI) }, () => {
 	const source = readFileSync(REAL_PI_AI, "utf8");
