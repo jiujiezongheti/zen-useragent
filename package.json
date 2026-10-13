@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-zen-useragent",
-  "version": "1.4.0",
-  "description": "让 provider 配置的 headers（如 User-Agent）真正到达 pi-ai 的 API 请求，自动补全 opencode 身份头（ses_/msg_ 会话与请求 ID 格式），并在向 OpenCode Zen 网关发送的请求 body.tools 里补上网关必需的 bash 工具 —— 把请求识别为 opencode 客户端而不是 deepseek-harness，修复 OpenCode ZEN 免费模型 429（FreeUsageLimitError）、400（MissingSessionID/MissingHeader）、403（Generation.FreeTierError）",
+  "version": "1.5.0",
+  "description": "让 provider 配置的 headers（如 User-Agent）真正到达 pi-ai 的 API 请求，自动补全 opencode 身份头并接入用户 opencode 客户端数据库里的真实会话 ID（x-opencode-session 账号已知会话，v6 起运行时自动跟随最新会话、无需重启），同时向 OpenCode Zen 网关发送的请求 body.tools 里补上网关必需的 bash 工具 —— 把请求识别为 opencode 客户端而不是 deepseek-harness，修复 OpenCode ZEN 免费模型 429（FreeUsageLimitError）、400（MissingSessionID/MissingHeader）、403（Generation.FreeTierError / FreeTierError）",
   "type": "module",
   "main": "lib/index.js",
   "files": [
@@ -9,7 +9,7 @@
     "cordis.patch.yml"
   ],
   "scripts": {
-    "test": "node test/patch-core.test.mjs"
+    "test": "node test/patch-core.test.mjs && node test/zen-session.test.mjs"
   },
   "engines": {
     "node": ">=18"
